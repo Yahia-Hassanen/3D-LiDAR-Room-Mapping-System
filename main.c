@@ -23,17 +23,16 @@
 
 // I2C Leader Control Status (MCS) Bit Masks and Configuration
 
-
-#define I2C_MCS_ACK             0x00000008  // Data Acknowledge Enable
-#define I2C_MCS_DATACK          0x00000008  // Acknowledge Data
-#define I2C_MCS_ADRACK          0x00000004  // Acknowledge Address
-#define I2C_MCS_STOP            0x00000004  // Generate STOP
-#define I2C_MCS_START           0x00000002  // Generate START
-#define I2C_MCS_ERROR           0x00000002  // Error
-#define I2C_MCS_RUN             0x00000001  // I2C Master Enable
-#define I2C_MCS_BUSY            0x00000001  // I2C Busy
-#define I2C_MCR_MFE             0x00000010  // I2C Master Function Enable
-#define MAXRETRIES              5           // number of receive attempts before giving up
+#define I2C_MCS_ACK             0x00000008  
+#define I2C_MCS_DATACK          0x00000008  
+#define I2C_MCS_ADRACK          0x00000004  
+#define I2C_MCS_STOP            0x00000004  
+#define I2C_MCS_START           0x00000002 
+#define I2C_MCS_ERROR           0x00000002  
+#define I2C_MCS_RUN             0x00000001  
+#define I2C_MCS_BUSY            0x00000001  
+#define I2C_MCR_MFE             0x00000010  
+#define MAXRETRIES              5         
 
 
 
@@ -44,45 +43,42 @@ int step_tracker = 0;   // tracks stepper motor position in steps
 
 
 // Initalzing I2C
-
-
 void I2C_Init(void){
-    // Enable clock for I2C0 and Port B
+    // Enable clock for I2C0 & Port B
     SYSCTL_RCGCI2C_R |= SYSCTL_RCGCI2C_R0;           												
     SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R1;          												
     
-    // Wait until Port is ready 
+    // Wait so Port is ready 
     while((SYSCTL_PRGPIO_R&0x0002) == 0){};																		
 
     // Enable alternate function on PB2 and PB3
     GPIO_PORTB_AFSEL_R |= 0x0C; 
 
-    // Configure PB3 as open drain          																	    
+    // Configure PB3 as open drain (         																	    
     GPIO_PORTB_ODR_R |= 0x08;             																
 
-    // Enable digital I/IO  on PB2 and PB3
+    // Enable digital I/IO  on PB2 & PB3
     GPIO_PORTB_DEN_R |= 0x0C;             																	
 
-    // Configure PB2,3 as I2C
+    // Configure PB2,PB3 as I2C
     GPIO_PORTB_PCTL_R = (GPIO_PORTB_PCTL_R&0xFFFF00FF)+0x00002200;
     
     // Enable I2C master function
     I2C0_MCR_R = I2C_MCR_MFE;       
     
-    // Configure for 100 kbps clock (added 8 clocks of glitch suppression ~50ns) 
+    // Configure for 100 kbps clock 
     I2C0_MTPR_R = 0b0000000000000101000000000111011;                      
 }
 
 
 // Initalizing ports  
 
-// PM0 and PM1 as inputs for external push buttons (active-low configuration).
+// PM as toggle to test bus speed
 void PortM_Init(void){
     SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R11;
     while((SYSCTL_PRGPIO_R & SYSCTL_PRGPIO_R11) == 0){};
-    GPIO_PORTM_DIR_R &= ~0x03;
+    GPIO_PORTM_DIR_R |= 0b00000001;
     GPIO_PORTM_DEN_R |= 0x03;
-    GPIO_PORTM_PUR_R |= 0x03;  
     return;
 }
 
@@ -118,41 +114,9 @@ void PortJ_Init(void){
     GPIO_PORTJ_DEN_R |= 0x03;
     GPIO_PORTJ_PCTL_R &= ~0x000000FF;
     GPIO_PORTJ_AMSEL_R &= ~0x03;
-    GPIO_PORTJ_PUR_R |= 0x03;
+    GPIO_PORTJ_PUR_R |= 0x03;   //pull up resistor so pin reads HI when button is open. Active low bc when pressed it connects pin to GND
     return;
 }
-/*
- * PortJ_Interrupt_Init - Sets up edge-triggered interrupts for Port J (PJ0 and PJ1).
- */
-void PortJ_Interrupt_Init(void) {
-  // Configure PJ0 and PJ1 for edge-sensitive interrupt triggering (falling edge)
-  GPIO_PORTJ_IS_R = 0;       // Edge-sensitive
-  GPIO_PORTJ_IBE_R = 0;      // Not triggering on both edges
-  GPIO_PORTJ_IEV_R = 0;      // Falling edge trigger
-  GPIO_PORTJ_ICR_R = 0x03;   // Clear any prior interrupt flags for PJ0 and PJ1
-  GPIO_PORTJ_IM_R = 0x03;    // Unmask interrupts on PJ0 and PJ1
-  
-  // Enable the Port J interrupt in the NVIC (interrupt number 51)
-  NVIC_EN1_R = 0x00080000;
-  
-  // Set the interrupt priority for Port J (priority level 5)
-  NVIC_PRI12_R = 0xA0000000;
-  
-  // Enable global interrupts
-  EnableInt();
-}
-
-
-// VL53L1X_XSHUT - Resets the VL53L1X sensor using the XSHUT pin on Port G.
-
-void VL53L1X_XSHUT(void){
-    GPIO_PORTG_DIR_R |= 0x01;                                        // make PG0 out
-    GPIO_PORTG_DATA_R &= 0b11111110;                                 //PG0 = 0
-    FlashAllLEDs();
-    SysTick_Wait10ms(10);
-    GPIO_PORTG_DIR_R &= ~0x01;                                            // make PG0 input (HiZ)
-}
-
 
 
 // EnableInt - Enables global interrupts using an assembly instruction.
@@ -173,22 +137,57 @@ void WaitForInt(void) {
 }
 
 
+//PortJ_Interrupt_Init - Sets up edge-triggered interrupts for Port J (PJ0 and PJ1).
+
+void PortJ_Interrupt_Init(void) {
+
+  GPIO_PORTJ_IS_R = 0;       // Edge-sensitive (as oppsed to level)
+  GPIO_PORTJ_IBE_R = 0;      
+  GPIO_PORTJ_IEV_R = 0;      // Falling edge trigger
+  GPIO_PORTJ_ICR_R = 0x03;   // Clear prior interrupt flags
+  GPIO_PORTJ_IM_R = 0x03;    // Unmask interrupts on PJ0 and PJ1
+  
+  // Enable the Port J interrupt in NVIC 
+  NVIC_EN1_R = 0x00080000;
+  
+  // Set the interrupt priority for Port J 
+  NVIC_PRI12_R = 0xA0000000;
+  
+  // Enable global interrupts
+  EnableInt();
+}
+
+
+// Resets the VL53L1X sensor using the XSHUT pin on Port G.
+
+void VL53L1X_XSHUT(void){
+    GPIO_PORTG_DIR_R |= 0x01;                                        // make PG0 output
+    GPIO_PORTG_DATA_R &= 0b11111110;                                 //PG0 = 0 ie. set low to reset sensor
+    FlashAllLEDs();
+    SysTick_Wait10ms(10);
+    GPIO_PORTG_DIR_R &= ~0x01;                                            // make PG0 input
+}
+
+
+
 // Rotates the motor by a given number of steps.
 void spin(int steps, int dir){
   
-    uint32_t delay = 600;	  									// value that made sense from previous labs, not too slow and not too fast making it stall)
+    uint32_t phase_delay = 600;	  								
 	
-	if(dir >= 0){  																			// Clockwise sequence
-		for(int i=0; i<steps; i++)
-        {												// Iterate by the number of steps
-			GPIO_PORTH_DATA_R = 0b00000011;									// Lab 4 full-step procedure
-			SysTick_Wait10us(delay);											
-			GPIO_PORTH_DATA_R = 0b00000110;													
-			SysTick_Wait10us(delay);
-			GPIO_PORTH_DATA_R = 0b00001100;													
-			SysTick_Wait10us(delay);
-			GPIO_PORTH_DATA_R = 0b00001001;													
-			SysTick_Wait10us(delay);
+	if(dir >= 0){
+        // ── Clockwise Rotation ──
+        for(int i = 0; i < steps; i++){
+            GPIO_PORTH_DATA_R = 0b00000011;   // Coils A+B
+            SysTick_Wait10us(phase_delay);
+            GPIO_PORTH_DATA_R = 0b00000110;   // Coils B+C
+            SysTick_Wait10us(phase_delay);
+            GPIO_PORTH_DATA_R = 0b00001100;   // Coils C+D
+            SysTick_Wait10us(phase_delay);
+            GPIO_PORTH_DATA_R = 0b00001001;   // Coils D+A
+            SysTick_Wait10us(phase_delay);
+ 
+            // Wrap position counter at one full revolution
     
             if (step_tracker == 512)
 
@@ -202,14 +201,14 @@ void spin(int steps, int dir){
 		for(int i=0; i<steps; i++)
         {				
             FlashLED3(1);								
-			GPIO_PORTH_DATA_R = 0b00001001;								
-			SysTick_Wait10us(delay);											
-			GPIO_PORTH_DATA_R = 0b00001100;													
-			SysTick_Wait10us(delay);
-			GPIO_PORTH_DATA_R = 0b00000110;									
-			SysTick_Wait10us(delay);
-			GPIO_PORTH_DATA_R = 0b00000011;						
-			SysTick_Wait10us(delay);
+			GPIO_PORTH_DATA_R = 0b00001001;   // Coils D+A
+            SysTick_Wait10us(phase_delay);
+            GPIO_PORTH_DATA_R = 0b00001100;   // Coils C+D
+            SysTick_Wait10us(phase_delay);
+            GPIO_PORTH_DATA_R = 0b00000110;   // Coils B+C
+            SysTick_Wait10us(phase_delay);
+            GPIO_PORTH_DATA_R = 0b00000011;   // Coils A+B
+            SysTick_Wait10us(phase_delay);
 			
 
             if (step_tracker == 512)
@@ -226,66 +225,67 @@ void spin(int steps, int dir){
  * Handles push-button events and sensor ranging sequence.
  */
 void GPIOJ_IRQHandler(void) {
-  // Check if PJ1 (bit 1) triggered the interrupt: initiate ranging sequence
-  if (GPIO_PORTJ_RIS_R & 0x02) {
-    uint16_t Distance;
-    uint16_t SignalRate;
-    uint16_t AmbientRate;
-    uint16_t SpadNum;
-    uint8_t RangeStatus;
-    uint8_t dataReady = 0;
-
-    // Start the ranging process on the VL53L1X sensor
-    status = VL53L1X_StartRanging(dev);
-    
-    // Perform 64 consecutive measurements
-    for (int i = 0; i < 64; i++) {
-      // Wait until the sensor indicates that data is ready
-      while (dataReady == 0) {
-        status = VL53L1X_CheckForDataReady(dev, &dataReady);
-        VL53L1_WaitMs(dev, 5);  // Short delay before re-checking
-      }
-      dataReady = 0;
-      
-      // Retrieve sensor measurements
-      status = VL53L1X_GetRangeStatus(dev, &RangeStatus);
-      status = VL53L1X_GetDistance(dev, &Distance);
-      FlashLED2(1);         // Flash LED to signal measurement capture
-      status = VL53L1X_GetSignalRate(dev, &SignalRate);
-      status = VL53L1X_GetAmbientRate(dev, &AmbientRate);
-      status = VL53L1X_GetSpadNb(dev, &SpadNum);
-      status = VL53L1X_ClearInterrupt(dev);  // Clear the sensor's interrupt flag
-      
-      // Transmit the measured distance via UART
-      sprintf(printf_buffer, "%u\n", Distance);
-      UART_printf(printf_buffer);
-      
-      FlashLED4(1);         // UART transmission
-      SysTick_Wait10ms(1);    // Short pause before next measurement
-      
-      // Rotate the stepper motor 8 steps (approximately 5.625�)
-      spin(8, 1);
+ 
+    // SW2 press -> Begin scan sequence
+    if (GPIO_PORTJ_RIS_R & 0x02) {
+ 
+        uint16_t Distance;
+        uint16_t SignalRate;
+        uint16_t AmbientRate;
+        uint16_t SpadNum;
+        uint8_t  RangeStatus;
+        uint8_t  dataReady = 0;   // Must be 0 so first poll waits for genuine data
+ 
+        status = VL53L1X_StartRanging(dev);   // Begin continuous ranging on sensor
+ 
+        for (int i = 0; i < 64; i++) {
+ 
+            // Poll until the sensor flags a new measurement is available
+            while (dataReady == 0) {
+                status = VL53L1X_CheckForDataReady(dev, &dataReady);
+                VL53L1_WaitMs(dev, 5);
+            }
+            dataReady = 0;   // Reset flag so next iteration waits for fresh data
+ 
+            // Read all measurement fields from the sensor over I2C
+            status = VL53L1X_GetRangeStatus(dev, &RangeStatus);
+            status = VL53L1X_GetDistance(dev, &Distance);
+            FlashLED2(1);    // PN0 — measurement status LED
+ 
+            status = VL53L1X_GetSignalRate(dev, &SignalRate);
+            status = VL53L1X_GetAmbientRate(dev, &AmbientRate);
+            status = VL53L1X_GetSpadNb(dev, &SpadNum);
+            status = VL53L1X_ClearInterrupt(dev);   // Must clear to allow next measurement
+ 
+            // Format distance as ASCII and send to PC via UART
+            sprintf(printf_buffer, "%u\n", Distance);
+            UART_printf(printf_buffer);
+            FlashLED4(1);    // PF0 — UART transmission status LED
+ 
+            SysTick_Wait10ms(1);   // Brief pause before advancing motor
+ 
+           
+            spin(8, 1);  // 64 samples x 8 steps = 512 steps = full 360 degree revolution
+        }
+ 
+        spin(512, -1);                   //  Motor back to home (CCW full revolution)
+        VL53L1X_StopRanging(dev);
+        status = VL53L1X_ClearInterrupt(dev);
+        GPIO_PORTJ_ICR_R = 0x02;        // Clear PJ1 interrupt flag
     }
+ 
+    // SW1 (PJ0): Stop acquisition and home motor
+    if (GPIO_PORTJ_RIS_R & 0x01) {
+ 
+        // Signal Python script to stop reading and initiate visualization
+        sprintf(printf_buffer, "STOP\n");
+        UART_printf(printf_buffer);
     
-    // Reset the stepper motor position after the measurement sequence
-    spin(512, -1);
-    VL53L1X_StopRanging(dev);
-    status = VL53L1X_ClearInterrupt(dev);
-    
-    // Clear the interrupt flag for PJ1
-    GPIO_PORTJ_ICR_R = 0x02;
-  }
-  
-  // Check if PJ0 (bit 0) triggered the interrupt: execute stop command
-  if (GPIO_PORTJ_RIS_R & 0x01) {
-    // Send a "STOP" message via UART
-    sprintf(printf_buffer, "STOP\n");
-    UART_printf(printf_buffer);
-    
-    // Reset the stepper motor position based on the current step_tracker value
+    // Return motor to home position based on the current step_tracker value
     if (step_tracker > 0)
       spin(step_tracker, -1);
-    if (step_tracker < 0)
+    
+      if (step_tracker < 0)
       spin(-step_tracker, 1);
     
     // Clear the interrupt flag for PJ0
@@ -295,35 +295,37 @@ void GPIOJ_IRQHandler(void) {
 
 
 int main(void){
-    
-    uint8_t sensor_state = 0;   // Tracks the state of the VL53L1X sensor (0 = uninitialized, 1 = initialized)
-    PLL_Init();     // Initialize system clock (configured to 36.92 MHz, PSYSDIV=12)
-    SysTick_Init(); // Initialize SysTick timer for delays
-	onboardLEDs_Init();
-	
-    I2C_Init();
-	UART_Init();
-    PortM_Init();
-    PortH_Init();
-    PortG_Init();
-    PortJ_Init();
-    PortJ_Interrupt_Init();										
-
-
-	while(sensor_state==0){																	// Wait for device booted
-		status = VL53L1X_BootState(dev, &sensor_state);
-		SysTick_Wait10ms(10);
-  }
-	FlashAllLEDs();																					// Hello world
-	status = VL53L1X_ClearInterrupt(dev); 
-    status = VL53L1X_SensorInit(dev);
-	Status_Check("SensorInit", status);
-  
-  while(1){
-    GPIO_PORTM_DATA_R ^= 0b00000001;  // Toggle PM0
-    SysTick_Wait10ms(50);             // 500ms delay
-
-    GPIO_PORTM_DATA_R ^= 0b00000001;  // Toggle PM0 again
-    SysTick_Wait10ms(50);             // 500ms delay
-	}
+ 
+    uint8_t sensor_state = 0;
+ 
+    PLL_Init();         
+    SysTick_Init();      
+    onboardLEDs_Init();  
+ 
+    I2C_Init();         
+    UART_Init();        
+ 
+    PortM_Init();        
+    PortH_Init();        
+    PortG_Init();        
+    PortJ_Init();        
+    PortJ_Interrupt_Init(); // Falling-edge interrupts on PJ0 and PJ1
+ 
+    // Wait for VL53L1X boot sequence to complete
+    while(sensor_state == 0){
+        status = VL53L1X_BootState(dev, &sensor_state);
+        SysTick_Wait10ms(10);
+    }
+ 
+    FlashAllLEDs();   // Visual confirmation: sensor is booted and ready
+ 
+    status = VL53L1X_ClearInterrupt(dev);    // Clear  stale interrupt from boot
+    status = VL53L1X_SensorInit(dev);        // Load  ensor 
+    Status_Check("SensorInit", status);      
+ 
+    // Idle loop 
+    while(1){
+        WaitForInt();
+    }
+ 
 }
